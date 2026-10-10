@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PROYECTO PLANIFICADOR - Control Maestro (V3 en línea)</title>
+  <!-- Aplica el tema guardado antes de dibujar la página (evita parpadeo) -->
+  <script>
+    (function () {
+      try {
+        if (localStorage.getItem('planner_theme') === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <link rel="stylesheet" href="css/styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+  <!-- LIBRERÍA SHEETJS PARA IMPORTAR / EXPORTAR EXCEL -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="app-layout">
+
+    <!-- LATERAL DE FILTROS -->
+    <aside class="filter-sidebar">
+      <div class="sidebar-section">
+        <h4 class="filter-title">SESIÓN</h4>
+        <div id="session-user" class="session-user">-</div>
+        <div id="sync-status" class="sync-status">Conectando…</div>
+        <button type="button" id="btn-logout" class="theme-toggle-btn">🚪 Cerrar sesión</button>
+      </div>
+
+      <div class="sidebar-section">
+        <h4 class="filter-title">APARIENCIA</h4>
+        <button type="button" id="btn-theme-toggle" class="theme-toggle-btn">
+          <span id="theme-icon">🌙</span>
+          <span id="theme-label">Modo oscuro</span>
+        </button>
+      </div>
+
+      <div class="sidebar-section">
+        <h4 class="filter-title">FILTRAR POR CARGO</h4>
+        <div id="filter-users-list" class="user-filter-list"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <h4 class="filter-title">FILTRAR POR PRIORIDAD</h4>
+        <div class="chip-group" id="chip-priority-group">
+          <button class="chip active" data-value="ALL">Todos</button>
+          <button class="chip" data-value="Crítica">Crítico</button>
+          <button class="chip" data-value="Media">Medio</button>
+          <button class="chip" data-value="Baja">Bajo</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h4 class="filter-title">FRECUENCIA</h4>
+        <div class="chip-group" id="chip-freq-group">
+          <button class="chip active" data-value="ALL">Todos</button>
+          <button class="chip" data-value="Diario">Diario</button>
+          <button class="chip" data-value="Semanal">Semanal</button>
+          <button class="chip" data-value="Mensual">Mensual</button>
+          <button class="chip" data-value="Variable">Variable</button>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h4 class="filter-title">FILTRAR POR PLAZO (DENTRO DEL MES)</h4>
+        <div class="date-range-box">
+          <div class="date-input-group">
+            <label>Desde</label>
+            <input type="date" id="filter-date-from">
+          </div>
+          <div class="date-input-group">
+            <label>Hasta</label>
+            <input type="date" id="filter-date-to">
+          </div>
+          <button class="btn-secondary btn-full" id="btn-clear-dates">Limpiar Plazo</button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- PANEL PRINCIPAL -->
+    <main class="main-panel">
+
+      <!-- KPIS (corresponden al mes seleccionado) -->
+      <section class="kpi-row">
+        <div class="kpi-card">
+          <div class="kpi-info">
+            <span class="kpi-label">Total de Tareas del Mes</span>
+            <span id="kpi-total" class="kpi-value">0</span>
+          </div>
+          <div class="kpi-icon icon-gray">📋</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-info">
+            <span class="kpi-label">Tareas Completadas</span>
+            <span id="kpi-completed" class="kpi-value green">0</span>
+          </div>
+          <div class="kpi-icon icon-green">✓</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-info">
+            <span class="kpi-label">En Proceso (Activas)</span>
+            <span id="kpi-process" class="kpi-value blue">0</span>
+          </div>
+          <div class="kpi-icon icon-blue">🔄</div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-info">
+            <span class="kpi-label">Plazos Críticos Activos</span>
+            <span id="kpi-critical" class="kpi-value red">0</span>
+          </div>
+          <div class="kpi-icon icon-red">🔔</div>
+        </div>
+      </section>
+
+      <!-- ALERT BANNER -->
+      <section class="alert-banner" id="alert-banner">
+        <div class="alert-content">
+          <div class="alert-shield">🛡️</div>
+          <div>
+            <h3 class="alert-title">CENTRO DE ALERTAS DE INCUMPLIMIENTO</h3>
+            <p id="alert-message" class="alert-desc">
+              ⚠️ ADVERTENCIA OPERACIONAL: Monitorea tareas críticas y desviaciones del plan de trabajo.
+            </p>
+          </div>
+        </div>
+        <button class="btn-alert-action" id="btn-audit-critical">Auditar Críticos</button>
+      </section>
+
+      <!-- TAB BAR Y ACCIONES GLOBALES -->
+      <section class="view-tab-bar">
+        <div class="tab-group">
+          <button class="tab-btn active" data-view="gantt">📊 Carta Gantt</button>
+          <button class="tab-btn" data-view="kanban">📋 Tablero Kanban</button>
+          <button class="tab-btn" data-view="table">📑 Vista de Tabla</button>
+          <button class="tab-btn" data-view="metrics">📈 Métricas & Carga</button>
+          <button class="tab-btn" data-view="report">📝 Reporte Mensual</button>
+          <button class="tab-btn" data-view="history">🏛️ Historial de Gestión</button>
+        </div>
+
+        <div class="action-search-group">
+          <div class="search-box">
+            <span>🔍</span>
+            <input type="text" id="global-search" placeholder="Buscar tarea...">
+            <button id="btn-clear-search" class="btn-clear-search" title="Limpiar búsqueda">✕</button>
+          </div>
+          <input type="file" id="excel-upload" accept=".xlsx, .xls, .csv" style="display: none;">
+          <button id="btn-import-excel" class="btn-secondary-blue">📥 Importar Excel</button>
+          <button id="btn-add-task" class="btn-primary-green">+ Nueva Tarea</button>
+        </div>
+      </section>
+
+      <!-- BARRA DE PERIODO COMPARTIDA (Gantt, Kanban, Tabla, Métricas y Reporte) -->
+      <section class="period-bar" id="period-bar">
+        <div class="period-nav">
+          <button class="btn-secondary btn-sm" id="btn-period-prev">◀ Anterior</button>
+          <div id="period-badge" class="period-badge">--</div>
+          <button class="btn-secondary btn-sm" id="btn-period-next">Siguiente ▶</button>
+          <button class="btn-text-action" id="btn-period-today">Ir a Hoy</button>
+        </div>
+        <div class="period-actions">
+          <div class="period-info" id="period-info">--</div>
+          <button class="btn-danger-sm" id="btn-period-clear" title="Borra todas las tareas visibles del mes seleccionado">🗑️ Vaciar mes</button>
+        </div>
+      </section>
+
+      <!-- VISTAS -->
+      <div id="views-container">
+
+        <!-- GANTT -->
+        <div id="view-gantt" class="view-panel active">
+          <div class="gantt-subhead">
+            <div class="gantt-legend">
+              <span><i class="legend-dot" style="background:var(--color-status-pending);"></i> Pendiente</span>
+              <span><i class="legend-dot" style="background:var(--color-status-process);"></i> En proceso</span>
+              <span><i class="legend-dot" style="background:var(--color-status-completed);"></i> Completada</span>
+              <span><i class="legend-dot" style="background:var(--color-status-suspended);"></i> Suspendida</span>
+            </div>
+            <div class="zoom-control">
+              <label class="toggle-control">
+                <input type="checkbox" id="gantt-hide-completed" checked>
+                <span class="toggle-slider"></span>
+                <span class="toggle-label">Ocultar Completadas</span>
+              </label>
+              <span style="margin-left: 1rem;">Zoom:</span>
+              <button class="zoom-btn">Compacto</button>
+              <button class="zoom-btn active">Normal</button>
+              <button class="zoom-btn">Detallado</button>
+            </div>
+          </div>
+          <div class="gantt-wrapper">
+            <div id="gantt-container" class="gantt-container"></div>
+          </div>
+        </div>
+
+        <!-- KANBAN -->
+        <div id="view-kanban" class="view-panel">
+          <div class="kanban-board">
+            <div class="kanban-col" data-status="Pendiente">
+              <div class="kanban-header status-header-red">Pendientes (<span id="count-Pendiente">0</span>)</div>
+              <div class="kanban-list" id="kanban-Pendiente"></div>
+            </div>
+            <div class="kanban-col" data-status="En proceso">
+              <div class="kanban-header status-header-blue">En Proceso (<span id="count-En proceso">0</span>)</div>
+              <div class="kanban-list" id="kanban-En proceso"></div>
+            </div>
+            <div class="kanban-col" data-status="Completada">
+              <div class="kanban-header status-header-green">Completadas (<span id="count-Completada">0</span>)</div>
+              <div class="kanban-list" id="kanban-Completada"></div>
+            </div>
+            <div class="kanban-col" data-status="Suspendida">
+              <div class="kanban-header status-header-yellow">Suspendidas (<span id="count-Suspendida">0</span>)</div>
+              <div class="kanban-list" id="kanban-Suspendida"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TABLA -->
+        <div id="view-table" class="view-panel">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Tarea / Nombre</th>
+                  <th>Responsable</th>
+                  <th>Frecuencia</th>
+                  <th>Prioridad</th>
+                  <th>Estado</th>
+                  <th>Inicio</th>
+                  <th>Término</th>
+                  <th>Tiempo</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="table-tasks-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- HISTORIAL DE GESTIÓN (BITÁCORA DE MOVIMIENTOS) -->
+        <div id="view-history" class="view-panel">
+          <div class="history-header">
+            <div>
+              <h2>🏛️ Historial de Gestión</h2>
+              <p id="history-subtitle">Bitácora de movimientos según la fecha en que se realizaron.</p>
+            </div>
+            <div class="history-filters">
+              <select id="history-month-filter" class="select-filter">
+                <option value="ALL">Todos los meses</option>
+                <option value="01">Enero</option><option value="02">Febrero</option><option value="03">Marzo</option>
+                <option value="04">Abril</option><option value="05">Mayo</option><option value="06">Junio</option>
+                <option value="07">Julio</option><option value="08">Agosto</option><option value="09">Septiembre</option>
+                <option value="10">Octubre</option><option value="11">Noviembre</option><option value="12">Diciembre</option>
+              </select>
+              <select id="history-year-filter" class="select-filter">
+                <option value="ALL">Todos los años</option>
+              </select>
+              <select id="history-action-filter" class="select-filter">
+                <option value="ALL">Todos los movimientos</option>
+                <option value="Creación">Creación</option>
+                <option value="Importación">Importación</option>
+                <option value="Cambio de estado">Cambio de estado</option>
+                <option value="Edición">Edición</option>
+                <option value="Eliminación">Eliminación</option>
+              </select>
+              <button class="btn-secondary" id="btn-history-clear">Quitar filtros</button>
+              <button class="btn-secondary" id="btn-history-purge" title="Quita del historial los registros de tareas que ya no existen">🧹 Quitar tareas eliminadas</button>
+              <button class="btn-secondary-blue" id="btn-history-export">📤 Exportar a Excel</button>
+            </div>
+          </div>
+          <div class="history-summary" id="history-summary"></div>
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Fecha y hora</th>
+                  <th>Tarea</th>
+                  <th>Responsable</th>
+                  <th>Movimiento</th>
+                  <th>Detalle</th>
+                  <th>Acciones</th>
+                </tr>
+              </thead>
+              <tbody id="history-tasks-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- MÉTRICAS -->
+        <div id="view-metrics" class="view-panel">
+          <div class="metrics-header-title">
+            <h2>📈 Métricas & Carga Operacional de Trabajo</h2>
+            <p id="metrics-subtitle">Análisis y estadísticas visuales del mes seleccionado</p>
+          </div>
+          <div class="metrics-dashboard-grid">
+            <div class="metrics-card">
+              <div class="metrics-card-header">📊 WORKLOAD: TAREAS ASIGNADAS POR CARGO</div>
+              <div id="workload-bars-container" class="workload-bars-list"></div>
+            </div>
+            <div class="metrics-card">
+              <div class="metrics-card-header">🕒 ESTADO GLOBAL DE TAREAS</div>
+              <div class="doughnut-container-layout">
+                <div class="chart-doughnut-wrapper">
+                  <canvas id="chartStatusDoughnut"></canvas>
+                  <div class="doughnut-center-text">
+                    <span id="doughnut-percentage">0%</span>
+                    <small>COMPLETADO</small>
+                  </div>
+                </div>
+                <div id="doughnut-legend" class="doughnut-legend-list"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- REPORTE MENSUAL EJECUTIVO -->
+        <div id="view-report" class="view-panel">
+          <div class="report-wrapper-print">
+            <div class="report-executive-header">
+              <div>
+                <h1 class="report-brand-title">INFORME MENSUAL DE CONTROL Y GESTIÓN</h1>
+                <p class="report-sub-title">Monitoreo de Operaciones, Cargas de Trabajo y Alertas de Cumplimiento</p>
+              </div>
+              <div class="report-meta-box">
+                <div><strong>PERIODO:</strong> <span id="report-period">--</span></div>
+                <div><strong>FECHA DE EMISIÓN:</strong> <span id="report-date">--/--/----</span></div>
+                <div><strong>SISTEMA:</strong> PLANIFICADOR MAESTRO</div>
+              </div>
+            </div>
+
+            <div class="report-kpi-banner" id="report-kpi-summary"></div>
+
+            <div class="report-section">
+              <h3 class="report-section-title">1. Resumen de Rendimiento y Avance del Mes</h3>
+              <div class="report-progress-block">
+                <div class="report-progress-label">
+                  <span>Cumplimiento del Plan Operativo</span>
+                  <strong id="report-progress-text">0%</strong>
+                </div>
+                <div class="workload-progress-bg" style="height: 16px;">
+                  <div id="report-progress-bar" class="workload-progress-fill" style="background: var(--color-status-completed); width: 0%;"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="report-section">
+              <h3 class="report-section-title">2. Matriz de Riesgo y Tareas Críticas</h3>
+              <table class="report-data-table">
+                <thead>
+                  <tr>
+                    <th>Tarea / Hito</th>
+                    <th>Responsable</th>
+                    <th>Frecuencia</th>
+                    <th>Estado</th>
+                    <th>Plazo Límite</th>
+                  </tr>
+                </thead>
+                <tbody id="report-critical-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="report-section">
+              <h3 class="report-section-title">3. Tareas Atrasadas del Periodo</h3>
+              <table class="report-data-table">
+                <thead>
+                  <tr>
+                    <th>Tarea / Hito</th>
+                    <th>Responsable</th>
+                    <th>Prioridad</th>
+                    <th>Estado</th>
+                    <th>Plazo Límite</th>
+                    <th>Días de atraso</th>
+                  </tr>
+                </thead>
+                <tbody id="report-overdue-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="report-section">
+              <h3 class="report-section-title">4. Distribución de Carga por Cargo / Departamento</h3>
+              <div class="report-chart-box">
+                <canvas id="reportWorkloadChart"></canvas>
+              </div>
+              <table class="report-data-table">
+                <thead>
+                  <tr>
+                    <th>Cargo</th>
+                    <th>Total Asignadas</th>
+                    <th>Completadas</th>
+                    <th>En Proceso</th>
+                    <th>Pendientes</th>
+                    <th>Suspendidas</th>
+                    <th>% Avance</th>
+                  </tr>
+                </thead>
+                <tbody id="report-team-tbody"></tbody>
+              </table>
+            </div>
+
+            <div class="report-actions-bar">
+              <button class="btn-primary-green" onclick="window.print()">🖨️ Exportar Informe PDF / Imprimir</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- MODAL DE TAREA -->
+  <div id="task-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modal-title">Agregar Nueva Tarea</h3>
+        <span class="close-modal">&times;</span>
+      </div>
+      <form id="task-form">
+        <input type="hidden" id="task-id">
+        <div class="form-grid">
+          <div class="form-group full-width">
+            <label>Nombre de la Tarea</label>
+            <input type="text" id="task-title" required placeholder="Ej: Pago de IVA...">
+          </div>
+          <div class="form-group">
+            <label>Responsable</label>
+            <select id="task-assignee" required></select>
+          </div>
+          <div class="form-group">
+            <label>Frecuencia</label>
+            <select id="task-frequency">
+              <option value="Mensual">Mensual</option>
+              <option value="Semanal">Semanal</option>
+              <option value="Diario">Diario</option>
+              <option value="Variable">Variable</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Prioridad</label>
+            <select id="task-priority">
+              <option value="Baja">Baja</option>
+              <option value="Media" selected>Media</option>
+              <option value="Crítica">Crítica</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Estado</label>
+            <select id="task-status">
+              <option value="Pendiente">Pendiente</option>
+              <option value="En proceso">En proceso</option>
+              <option value="Completada">Completada</option>
+              <option value="Suspendida">Suspendida</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Fecha Inicio</label>
+            <input type="date" id="task-start" required>
+          </div>
+          <div class="form-group">
+            <label>Fecha Término</label>
+            <input type="date" id="task-end" required>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" id="btn-modal-delete" class="btn-danger-outline" style="display:none;">🗑️ Borrar</button>
+          <span class="spacer"></span>
+          <button type="submit" class="btn-primary-green">Guardar Tarea</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- V3: PANTALLA DE INICIO DE SESIÓN -->
+  <div id="login-screen" class="login-screen">
+    <form id="login-form" class="login-card" autocomplete="on">
+      <h2>Planificador de Tareas</h2>
+      <p class="login-sub">Ingresa con el correo y la contraseña que te entregó el administrador.</p>
+      <label>Correo<input type="email" id="login-email" required autocomplete="username"></label>
+      <label>Contraseña<input type="password" id="login-pass" required autocomplete="current-password"></label>
+      <button type="submit" id="login-btn" class="login-btn">Ingresar</button>
+      <p id="login-msg" class="login-msg"></p>
+    </form>
+  </div>
+
+  <!-- MODAL DE CONFIRMACIÓN -->
+  <div id="confirm-modal" class="modal">
+    <div class="modal-content modal-confirm">
+      <div class="confirm-icon" id="confirm-icon">⚠️</div>
+      <h3 id="confirm-title" class="confirm-title">¿Confirmar Acción?</h3>
+      <p id="confirm-message" class="confirm-message">Esta operación no se puede deshacer.</p>
+      <label class="confirm-check" id="confirm-check-wrap" style="display:none;">
+        <input type="checkbox" id="confirm-check">
+        <span id="confirm-check-label">Opción</span>
+      </label>
+      <div class="confirm-actions">
+        <button id="btn-confirm-cancel" class="btn-secondary">Cancelar</button>
+        <button id="btn-confirm-accept" class="btn-alert-action">Aceptar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- V3: FIREBASE (base de datos compartida + inicio de sesión) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
+  <script src="js/store.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
