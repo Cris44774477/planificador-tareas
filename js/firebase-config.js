@@ -10,10 +10,10 @@
  * "Reglas" de Firestore (archivo firestore.rules).
  */
 const firebaseConfig = {
-  apiKey: "PEGAR_AQUI",
-  authDomain: "PEGAR_AQUI",
-  projectId: "PEGAR_AQUI",
-  storageBucket: "PEGAR_AQUI",
-  messagingSenderId: "PEGAR_AQUI",
-  appId: "PEGAR_AQUI"
+  apiKey: "AIzaSyAQKSvHrzlLVYIGHQKwRmcz73TzniigYBI",
+  authDomain: "planificador-tareas-1b702.firebaseapp.com",
+  projectId: "planificador-tareas-1b702",
+  storageBucket: "planificador-tareas-1b702.firebasestorage.app",
+  messagingSenderId: "340597984101",
+  appId: "1:340597984101:web:9eb27b20319587ea9baf8c"
 };
