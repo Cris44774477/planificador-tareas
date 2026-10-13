@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PROYECTO PLANIFICADOR - Control Maestro (V3 en línea)</title>
+  <title>PROYECTO PLANIFICADOR - Control Maestro (V4 en línea)</title>
   <!-- Aplica el tema guardado antes de dibujar la página (evita parpadeo) -->
   <script>
     (function () {
@@ -15,16 +15,29 @@
     })();
   </script>
   <link rel="stylesheet" href="css/styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- V4: versiones fijas de las librerías (evita que una actualización externa cambie la app sin aviso) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
   <!-- LIBRERÍA SHEETJS PARA IMPORTAR / EXPORTAR EXCEL -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
+  <!-- V4: BARRA SUPERIOR (solo se ve en celular / pantallas angostas) -->
+  <header class="mobile-topbar">
+    <button type="button" id="btn-sidebar-open" class="mobile-menu-btn" aria-label="Abrir menú y filtros">☰ <span>Filtros</span></button>
+    <div class="mobile-topbar-title">Planificador</div>
+    <button type="button" id="btn-mobile-add" class="mobile-add-btn" aria-label="Nueva tarea">+</button>
+  </header>
+  <div id="sidebar-backdrop" class="sidebar-backdrop"></div>
+
   <div class="app-layout">
 
     <!-- LATERAL DE FILTROS -->
-    <aside class="filter-sidebar">
+    <aside class="filter-sidebar" id="filter-sidebar">
+      <div class="sidebar-mobile-head">
+        <strong>Menú y filtros</strong>
+        <button type="button" id="btn-sidebar-close" class="sidebar-close-btn" aria-label="Cerrar menú">✕</button>
+      </div>
       <div class="sidebar-section">
         <h4 class="filter-title">SESIÓN</h4>
         <div id="session-user" class="session-user">-</div>
@@ -43,6 +56,7 @@
       <div class="sidebar-section">
         <h4 class="filter-title">FILTRAR POR CARGO</h4>
         <div id="filter-users-list" class="user-filter-list"></div>
+        <button type="button" id="btn-manage-cargos" class="theme-toggle-btn">⚙️ Administrar cargos</button>
       </div>
 
       <div class="sidebar-section">
@@ -473,6 +487,34 @@
           <button type="submit" class="btn-primary-green">Guardar Tarea</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- V4: MODAL ADMINISTRAR CARGOS -->
+  <div id="cargos-modal" class="modal">
+    <div class="modal-content modal-cargos">
+      <div class="modal-header">
+        <h3>⚙️ Administrar cargos / áreas</h3>
+        <span class="close-modal" id="cargos-close">&times;</span>
+      </div>
+      <p class="cargos-help">
+        Renombra, ordena (▲▼), activa o desactiva los cargos. Las tareas se vinculan al cargo por un código interno,
+        por lo que <strong>al renombrar, todas sus tareas muestran el nombre nuevo</strong>.
+        Un cargo <strong>inactivo</strong> no aparece al crear tareas, pero sus tareas existentes se siguen viendo.
+        Solo se puede <strong>eliminar</strong> un cargo sin tareas.
+      </p>
+      <div id="cargos-warning" class="cargos-warning" style="display:none;"></div>
+      <div id="cargos-list" class="cargos-list"></div>
+      <div class="cargos-add">
+        <input type="text" id="cargo-new-name" maxlength="40" placeholder="Nombre del nuevo cargo (ej.: Tesorería)">
+        <button type="button" id="btn-cargo-add" class="btn-secondary-blue">+ Agregar</button>
+      </div>
+      <p id="cargos-msg" class="cargos-msg"></p>
+      <div class="modal-actions">
+        <button type="button" id="btn-cargos-cancel" class="btn-secondary">Cancelar</button>
+        <span class="spacer"></span>
+        <button type="button" id="btn-cargos-save" class="btn-primary-green">Guardar cambios</button>
+      </div>
     </div>
   </div>
 

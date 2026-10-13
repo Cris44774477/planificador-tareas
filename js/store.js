@@ -1,5 +1,6 @@
 /**
- * Estado, Datos y Bitácora de Movimientos (V3 - EN LÍNEA)
+ * Estado, Datos y Bitácora de Movimientos (V4 - EN LÍNEA, 13-10-2026)
+ * V4: cargos editables desde la app (colección "planner_cargos").
  * ----------------------------------------------------------------
  * Diferencia con V2: las tareas y el historial ya NO se guardan en el
  * navegador (localStorage), sino en Firebase Firestore. Así todos los
@@ -7,14 +8,22 @@
  *
  * - Colección "planner_tasks": una ficha por tarea.
  * - Colección "planner_log":   un registro por movimiento del Historial.
+ * - Colección "planner_cargos": un registro por cargo / área (V4).
  * - Cada movimiento guarda además quién lo hizo (campo "by" = correo).
  *
  * La "API" del Store (getTasks, saveTask, deleteTask, etc.) es la misma
  * de V2, por eso app.js casi no cambia.
  */
-const COLLECTIONS = { tasks: 'planner_tasks', log: 'planner_log' };
+const COLLECTIONS = { tasks: 'planner_tasks', log: 'planner_log', cargos: 'planner_cargos' };
 
-// Cargos / responsables (igual que V2). Para agregar uno, añádelo aquí.
+/*
+ * V4: los cargos ahora se administran desde la app (botón "Administrar cargos")
+ * y se guardan en la colección "planner_cargos".
+ * Esta lista solo se usa:
+ *   a) la primera vez, para crear los cargos en Firestore (mismos códigos usr-1..usr-5,
+ *      así las tareas existentes conservan su responsable), y
+ *   b) como respaldo si las reglas de Firestore aún no permiten leer "planner_cargos".
+ */
 const INITIAL_USERS = [
   { id: "usr-1", name: "Finanzas", role: "FIN" },
   { id: "usr-2", name: "Contabilidad", role: "CONT" },
@@ -55,7 +64,8 @@ function setSyncStatus(text, cls) {
 class Store {
   constructor(db) {
     this.db = db;
-    this.users = INITIAL_USERS;
+    this.users = INITIAL_USERS.map((u, i) => ({ ...u, active: true, order: i + 1 }));
+    this.cargosMode = 'loading';   // 'cloud' = desde Firestore · 'fallback' = lista fija (faltan reglas)
     this.tasks = [];
     this.log = [];
     this.currentUser = "";       // correo de quien está conectado
@@ -67,9 +77,9 @@ class Store {
 
   /** Escucha las dos colecciones. Llama a onFirstLoad cuando ambas llegaron por primera vez. */
   subscribe(onFirstLoad) {
-    let gotTasks = false, gotLog = false, fired = false;
+    let gotTasks = false, gotLog = false, gotCargos = false, fired = false, seeding = false;
     const check = () => {
-      if (gotTasks && gotLog) {
+      if (gotTasks && gotLog && gotCargos) {
         if (!fired) { fired = true; onFirstLoad(); }
         else if (typeof this.onChange === 'function') this.onChange();
       }
@@ -97,11 +107,49 @@ class Store {
       gotLog = true;
       check();
     }, onError);
+
+    // V4: cargos editables
+    this.unsubCargos = this.db.collection(COLLECTIONS.cargos).onSnapshot(snap => {
+      if (snap.empty) {
+        // Primera vez: se crean los cargos iniciales con sus mismos códigos
+        if (!snap.metadata.fromCache && !seeding) {
+          seeding = true;
+          this.seedCargos();
+        }
+        this.cargosMode = 'cloud';
+      } else {
+        this.users = snap.docs.map(d => d.data())
+          .sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.name).localeCompare(String(b.name)));
+        this.cargosMode = 'cloud';
+      }
+      gotCargos = true;
+      check();
+    }, err => {
+      // Si las reglas aún no incluyen "planner_cargos", la app sigue funcionando con la lista fija
+      console.warn('Cargos: se usa la lista fija del código.', err);
+      this.cargosMode = 'fallback';
+      gotCargos = true;
+      check();
+    });
+  }
+
+  /** Crea en Firestore los cargos de INITIAL_USERS (solo si la colección está vacía). */
+  seedCargos() {
+    const batch = this.db.batch();
+    const now = Date.now();
+    INITIAL_USERS.forEach((u, i) => {
+      batch.set(this.db.collection(COLLECTIONS.cargos).doc(u.id), {
+        id: u.id, name: u.name, role: u.role, active: true, order: i + 1,
+        createdAt: now, createdBy: this.currentUser
+      });
+    });
+    batch.commit().catch(err => console.error('No se pudieron crear los cargos iniciales', err));
   }
 
   updateStatusFromSnap(snap) {
     const hora = new Date().toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
     if (snap.metadata.hasPendingWrites) setSyncStatus('Guardando…');
+    else if (this.cargosMode === 'fallback') setSyncStatus(`✔ Sincronizado ${hora} · ⚠ Cargos sin reglas (ver Administrar cargos)`, 'err');
     else setSyncStatus(`✔ Sincronizado ${hora}`, 'ok');
   }
 
@@ -324,7 +372,53 @@ class Store {
   }
 
   getUserById(id) {
-    return this.users.find(u => u.id === id) || { name: "Sin Asignar", role: "N/A" };
+    return this.users.find(u => u.id === id) || { id, name: "Sin Asignar", role: "N/A", active: false };
+  }
+
+  /* ---------- CARGOS (V4) ---------- */
+
+  /** Cargos activos, en el orden definido por el usuario. */
+  getActiveUsers() {
+    return this.users.filter(u => u.active !== false);
+  }
+
+  /** Cantidad de tareas (de cualquier mes) asignadas a un cargo. */
+  countTasksByCargo(id) {
+    return this.tasks.filter(t => t.assigneeId === id).length;
+  }
+
+  newCargoId() {
+    return 'cargo-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+  }
+
+  /**
+   * Guarda la lista completa de cargos editada en la ventana "Administrar cargos".
+   * - list: [{ id|null, name, active }] en el orden deseado.
+   * - deletedIds: códigos a eliminar (la app solo permite eliminar cargos sin tareas).
+   * Las tareas guardan el CÓDIGO del cargo (assigneeId), no su nombre:
+   * al renombrar, todas las tareas muestran el nombre nuevo sin modificarlas.
+   */
+  saveCargos(list, deletedIds = []) {
+    if (this.cargosMode !== 'cloud') return false;
+    const now = Date.now();
+    const next = list.map((c, i) => {
+      const prev = this.users.find(u => u.id === c.id);
+      const base = prev ? { ...prev } : { id: c.id || this.newCargoId(), role: '', createdAt: now, createdBy: this.currentUser };
+      const rec = { ...base, name: c.name.trim(), active: c.active !== false, order: i + 1 };
+      const changed = !prev || prev.name !== rec.name || prev.active !== rec.active || prev.order !== rec.order;
+      if (changed) {
+        rec.updatedAt = now;
+        rec.updatedBy = this.currentUser;
+        this.queuePut(COLLECTIONS.cargos, rec);
+      }
+      return rec;
+    });
+    deletedIds.forEach(id => {
+      if (this.countTasksByCargo(id) === 0) this.queueDel(COLLECTIONS.cargos, id);
+    });
+    this.users = next;
+    this.save();
+    return true;
   }
 }
 

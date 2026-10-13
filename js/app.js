@@ -1,5 +1,6 @@
 /**
- * Controlador Principal - Lógica e Interacción (v13)
+ * Controlador Principal - Lógica e Interacción (V4 - 13-10-2026)
+ * - V4: cargos editables (ventana "Administrar cargos") y vista para celular
  * - Periodo (mes) único para Gantt, Kanban, Tabla, Métricas y Reporte Mensual
  * - Historial de Gestión como bitácora de movimientos filtrable por mes/año
  * - Botones Editar / Borrar en la Carta Gantt
@@ -70,6 +71,21 @@ window.startPlannerApp = () => {
     const diff = parseLocalDate(todayISO()) - parseLocalDate(t.endDate);
     return Math.max(0, Math.round(diff / 86400000));
   }
+  /**
+   * V4: cargos a mostrar en filtros, métricas y reporte:
+   * todos los activos + los inactivos que todavía tienen tareas en el periodo.
+   */
+  function cargosForTasks(tasks) {
+    const withTasks = new Set(tasks.map(t => t.assigneeId));
+    return store.users.filter(u => u.active !== false || withTasks.has(u.id));
+  }
+  function cargoLabel(u) {
+    return u.active === false ? `${u.name} (inactivo)` : u.name;
+  }
+  function isMobile() {
+    return window.matchMedia("(max-width: 900px)").matches;
+  }
+
   function normalizeOption(value, options, fallback) {
     if (value === null || value === undefined) return fallback;
     const v = String(value).trim().toLowerCase();
@@ -157,6 +173,9 @@ window.startPlannerApp = () => {
         const worksheet = workbook.Sheets[workbook.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(worksheet, { raw: true });
         let importedCount = 0, skipped = 0;
+        const unmatched = {};   // V4: responsables del Excel que no coinciden con ningún cargo
+        const activeUsers = store.getActiveUsers();
+        const defaultUser = activeUsers[0] || store.users[0];
 
         rows.forEach(row => {
           const getCol = (name) => {
@@ -168,10 +187,15 @@ window.startPlannerApp = () => {
           if (!title) { skipped++; return; }
 
           const resName = getCol("responsable");
-          let assigneeId = store.users[0].id;
+          let assigneeId = defaultUser.id;
           if (resName) {
-            const found = store.users.find(u => u.name.toLowerCase() === String(resName).trim().toLowerCase());
+            const key = String(resName).trim().toLowerCase();
+            const found = activeUsers.find(u => u.name.toLowerCase() === key) ||
+                          store.users.find(u => u.name.toLowerCase() === key);
             if (found) assigneeId = found.id;
+            else unmatched[String(resName).trim()] = (unmatched[String(resName).trim()] || 0) + 1;
+          } else {
+            unmatched["(sin responsable)"] = (unmatched["(sin responsable)"] || 0) + 1;
           }
 
           const frequency = normalizeOption(getCol("frecuencia"), ["Diario", "Semanal", "Mensual", "Variable"], "Mensual");
@@ -197,6 +221,13 @@ window.startPlannerApp = () => {
 
         let msg = `Se agregaron ${importedCount} tareas nuevas desde tu planilla Excel.`;
         if (skipped > 0) msg += `\n${skipped} fila(s) se omitieron por no tener nombre de tarea.`;
+        const unmatchedKeys = Object.keys(unmatched);
+        if (unmatchedKeys.length) {
+          const total = unmatchedKeys.reduce((a, k) => a + unmatched[k], 0);
+          msg += `\n\nOjo: ${total} tarea(s) quedaron asignadas a "${defaultUser.name}" porque su responsable no coincide con ningún cargo: ` +
+                 unmatchedKeys.map(k => `${k} (${unmatched[k]})`).join(", ") +
+                 `.\nRevísalas, o crea esos cargos en "Administrar cargos" antes de importar.`;
+        }
         showConfirmModal("Importación exitosa", msg, () => {}, { hideCancel: true, icon: "✅" });
       } catch (error) {
         console.error(error);
@@ -346,12 +377,28 @@ window.startPlannerApp = () => {
 
         const overdueHTML = isOverdue(t) ? ` <span class="badge-tag badge-overdue">⏰ Atrasada ${daysLate(t)}d</span>` : "";
 
+        const moveOptions = STATUSES.filter(s => s !== t.status).map(s => `<option value="${s}">${s}</option>`).join("");
         card.innerHTML = `
           <div class="kanban-card-title">${escapeHtml(t.title)}</div>
           <div class="kanban-card-meta">👤 ${escapeHtml(user.name)} | ⚡ ${escapeHtml(t.priority)}</div>
           <div class="kanban-card-meta">📅 ${formatDateCL(t.startDate)} al ${formatDateCL(t.endDate)}${overdueHTML}</div>
           ${timerHTML}
+          <div class="kanban-move">
+            <select aria-label="Mover tarea a otro estado"><option value="">↪ Mover a…</option>${moveOptions}</select>
+          </div>
         `;
+        // V4: en celular no existe "arrastrar y soltar"; este selector cambia el estado
+        const moveSel = card.querySelector(".kanban-move select");
+        moveSel.onclick = (e) => e.stopPropagation();
+        moveSel.onchange = (e) => {
+          e.stopPropagation();
+          const target = moveSel.value;
+          if (!target) return;
+          const wasCompleted = t.status === "Completada";
+          store.saveTask({ id: t.id, status: target });
+          if (target === "Completada" && !wasCompleted) triggerCelebration();
+          refreshAll();
+        };
         list.appendChild(card);
       });
     });
@@ -469,6 +516,12 @@ window.startPlannerApp = () => {
     });
 
     container.innerHTML = html;
+
+    // V4: en celular, si se ve el mes actual, desplaza la carta hasta unos días antes de hoy
+    if (isMobile() && isCurrentMonthView) {
+      const wrapper = container.parentElement;
+      wrapper.scrollLeft = Math.max(0, (todayDay - 3) * cellW);
+    }
   }
 
   document.getElementById("gantt-hide-completed").addEventListener("change", () => refreshAll());
@@ -489,6 +542,10 @@ window.startPlannerApp = () => {
     const container = document.getElementById("filter-users-list");
     const r = periodRange();
     const monthTasks = store.getTasks({ periodStart: r.start, periodEnd: r.end });
+    // V4: si el cargo filtrado fue eliminado, se vuelve a "Todos"
+    if (stateFilters.assigneeId !== "ALL" && !store.users.some(u => u.id === stateFilters.assigneeId)) {
+      stateFilters.assigneeId = "ALL";
+    }
 
     let html = `
       <div class="user-filter-item ${stateFilters.assigneeId === "ALL" ? "active" : ""}" data-id="ALL">
@@ -498,9 +555,11 @@ window.startPlannerApp = () => {
 
     store.users.forEach(u => {
       const uCount = monthTasks.filter(t => t.assigneeId === u.id).length;
+      // Los inactivos solo se muestran si tienen tareas en el mes (o si están seleccionados)
+      if (u.active === false && uCount === 0 && stateFilters.assigneeId !== u.id) return;
       html += `
-        <div class="user-filter-item ${stateFilters.assigneeId === u.id ? "active" : ""}" data-id="${u.id}">
-          <span>${escapeHtml(u.name)}</span>
+        <div class="user-filter-item ${stateFilters.assigneeId === u.id ? "active" : ""} ${u.active === false ? "inactive" : ""}" data-id="${u.id}">
+          <span>${escapeHtml(cargoLabel(u))}</span>
           <span class="count-badge">${uCount}</span>
         </div>`;
     });
@@ -627,12 +686,19 @@ window.startPlannerApp = () => {
     refreshAll();
   };
 
-  function populateAssignees() {
+  /**
+   * V4: lista de responsables del formulario. Solo cargos activos,
+   * más el cargo actual de la tarea si está inactivo (para no perderlo al editar).
+   */
+  function populateAssignees(currentId) {
+    const list = store.users.filter(u => u.active !== false || u.id === currentId);
+    if (currentId && !list.some(u => u.id === currentId)) list.push(store.getUserById(currentId));
     document.getElementById("task-assignee").innerHTML =
-      store.users.map(u => `<option value="${u.id}">${escapeHtml(u.name)}</option>`).join("");
+      list.map(u => `<option value="${u.id}">${escapeHtml(cargoLabel(u))}</option>`).join("");
   }
 
   window.openModal = function () {
+    populateAssignees();
     document.getElementById("task-form").reset();
     document.getElementById("task-id").value = "";
     document.getElementById("modal-title").innerText = "Agregar Nueva Tarea";
@@ -648,7 +714,9 @@ window.startPlannerApp = () => {
     startInput.value = suggestedStart;
     endInput.value = suggestedStart;
 
-    if (stateFilters.assigneeId !== "ALL") document.getElementById("task-assignee").value = stateFilters.assigneeId;
+    if (stateFilters.assigneeId !== "ALL" && store.getUserById(stateFilters.assigneeId).active !== false) {
+      document.getElementById("task-assignee").value = stateFilters.assigneeId;
+    }
     taskModal.classList.add("active");
   };
 
@@ -659,6 +727,7 @@ window.startPlannerApp = () => {
     document.getElementById("task-start").removeAttribute("min");
     document.getElementById("task-end").removeAttribute("min");
 
+    populateAssignees(t.assigneeId);
     document.getElementById("modal-title").innerText = "Editar Tarea";
     document.getElementById("btn-modal-delete").style.display = "inline-block";
     document.getElementById("task-id").value = t.id;
@@ -683,6 +752,184 @@ window.startPlannerApp = () => {
       { acceptText: "Eliminar", checkbox: { label: "Borrar también sus registros del Historial de Gestión", checked: true } }
     );
   };
+
+  /* =========================================================
+     V4: ADMINISTRAR CARGOS
+     Se trabaja sobre un BORRADOR (cargosDraft); nada se guarda
+     hasta presionar "Guardar cambios" y confirmar el resumen.
+     ========================================================= */
+  const cargosModal = document.getElementById("cargos-modal");
+  let cargosDraft = [];      // [{ id|null, tmpKey, name, active }]
+  let cargosDeleted = [];    // códigos a eliminar
+
+  function cargosMsg(text) {
+    document.getElementById("cargos-msg").innerText = text || "";
+  }
+
+  function openCargosModal() {
+    cargosDraft = store.users.map(u => ({ id: u.id, tmpKey: u.id, name: u.name, active: u.active !== false }));
+    cargosDeleted = [];
+    cargosMsg("");
+    document.getElementById("cargo-new-name").value = "";
+
+    const warn = document.getElementById("cargos-warning");
+    const readOnly = store.cargosMode !== "cloud";
+    warn.style.display = readOnly ? "block" : "none";
+    warn.innerText = readOnly
+      ? "⚠️ Las reglas de Firestore todavía no incluyen la colección \"planner_cargos\". " +
+        "Mientras tanto se usa la lista fija del código y no se pueden guardar cambios. " +
+        "Agrega la línea indicada en el archivo firestore.rules de la V4 y presiona Publicar en Firebase."
+      : "";
+    document.getElementById("btn-cargos-save").disabled = readOnly;
+    document.getElementById("btn-cargo-add").disabled = readOnly;
+
+    renderCargosDraft();
+    if (isMobile()) closeSidebar();
+    cargosModal.classList.add("active");
+  }
+
+  function cargoMetaHTML(c) {
+    const n = c.id ? store.countTasksByCargo(c.id) : 0;
+    const original = c.id ? store.users.find(u => u.id === c.id) : null;
+    const renamed = original && original.name !== c.name.trim();
+    return `${c.id ? `${n} tarea(s) en total` : `<span class="cargo-new">Nuevo</span>`}` +
+      (renamed ? ` · <span class="cargo-renamed">antes: ${escapeHtml(original.name)}</span>` : "");
+  }
+
+  function renderCargosDraft() {
+    const box = document.getElementById("cargos-list");
+    if (cargosDraft.length === 0) {
+      box.innerHTML = `<div class="kanban-empty">No hay cargos. Agrega al menos uno.</div>`;
+      return;
+    }
+    box.innerHTML = cargosDraft.map((c, i) => {
+      const canDelete = !c.id || store.countTasksByCargo(c.id) === 0;
+      return `
+        <div class="cargo-row ${c.active ? "" : "is-inactive"}" data-key="${escapeHtml(c.tmpKey)}">
+          <div class="cargo-order">
+            <button type="button" class="icon-btn" data-act="up" ${i === 0 ? "disabled" : ""} title="Subir">▲</button>
+            <button type="button" class="icon-btn" data-act="down" ${i === cargosDraft.length - 1 ? "disabled" : ""} title="Bajar">▼</button>
+          </div>
+          <div class="cargo-main">
+            <input type="text" class="cargo-name" maxlength="40" value="${escapeHtml(c.name)}" aria-label="Nombre del cargo">
+            <div class="cargo-meta">${cargoMetaHTML(c)}</div>
+          </div>
+          <label class="toggle-control cargo-active" title="Activo / inactivo">
+            <input type="checkbox" data-act="active" ${c.active ? "checked" : ""}>
+            <span class="toggle-slider"></span>
+            <span class="toggle-label">${c.active ? "Activo" : "Inactivo"}</span>
+          </label>
+          <button type="button" class="icon-btn icon-btn-danger" data-act="del" ${canDelete ? "" : "disabled"}
+            title="${canDelete ? "Eliminar cargo" : "Tiene tareas: no se puede eliminar. Desactívalo."}">🗑️</button>
+        </div>`;
+    }).join("");
+
+    box.querySelectorAll(".cargo-row").forEach(row => {
+      const key = row.dataset.key;
+      const idx = () => cargosDraft.findIndex(c => c.tmpKey === key);
+      row.querySelector(".cargo-name").addEventListener("input", (e) => {
+        const c = cargosDraft[idx()];
+        c.name = e.target.value;
+        row.querySelector(".cargo-meta").innerHTML = cargoMetaHTML(c);
+      });
+      row.querySelectorAll("[data-act]").forEach(el => {
+        const act = el.dataset.act;
+        if (act === "active") {
+          el.addEventListener("change", () => { cargosDraft[idx()].active = el.checked; renderCargosDraft(); });
+          return;
+        }
+        el.addEventListener("click", () => {
+          const i = idx();
+          if (act === "up" && i > 0) [cargosDraft[i - 1], cargosDraft[i]] = [cargosDraft[i], cargosDraft[i - 1]];
+          if (act === "down" && i < cargosDraft.length - 1) [cargosDraft[i + 1], cargosDraft[i]] = [cargosDraft[i], cargosDraft[i + 1]];
+          if (act === "del") {
+            const c = cargosDraft[i];
+            if (c.id && store.countTasksByCargo(c.id) > 0) return;
+            if (c.id) cargosDeleted.push(c.id);
+            cargosDraft.splice(i, 1);
+          }
+          cargosMsg("");
+          renderCargosDraft();
+        });
+      });
+    });
+  }
+
+  function addCargoToDraft() {
+    const input = document.getElementById("cargo-new-name");
+    const name = input.value.trim();
+    if (!name) { cargosMsg("Escribe el nombre del nuevo cargo."); input.focus(); return; }
+    if (cargosDraft.some(c => c.name.trim().toLowerCase() === name.toLowerCase())) {
+      cargosMsg(`Ya existe un cargo llamado "${name}".`); input.focus(); return;
+    }
+    cargosDraft.push({ id: null, tmpKey: "new-" + Date.now(), name, active: true });
+    input.value = "";
+    cargosMsg("");
+    renderCargosDraft();
+  }
+
+  /** Revisa el borrador y arma el resumen de cambios. Devuelve null si hay errores. */
+  function validateCargosDraft() {
+    const names = new Set();
+    for (const c of cargosDraft) {
+      const n = c.name.trim();
+      if (!n) { cargosMsg("Hay un cargo sin nombre. Escríbelo o elimínalo."); return null; }
+      if (names.has(n.toLowerCase())) { cargosMsg(`El nombre "${n}" está repetido. Cada cargo debe tener un nombre distinto.`); return null; }
+      names.add(n.toLowerCase());
+    }
+    if (!cargosDraft.some(c => c.active)) { cargosMsg("Debe quedar al menos un cargo activo."); return null; }
+
+    const lines = [];
+    cargosDraft.forEach(c => {
+      const orig = c.id ? store.users.find(u => u.id === c.id) : null;
+      if (!orig) { lines.push(`➕ Nuevo: ${c.name.trim()}`); return; }
+      if (orig.name !== c.name.trim()) lines.push(`✏️ Renombrar: ${orig.name} → ${c.name.trim()} (${store.countTasksByCargo(c.id)} tarea/s)`);
+      if ((orig.active !== false) && !c.active) lines.push(`⏸️ Desactivar: ${c.name.trim()}`);
+      if ((orig.active === false) && c.active) lines.push(`▶️ Reactivar: ${c.name.trim()}`);
+    });
+    cargosDeleted.forEach(id => lines.push(`🗑️ Eliminar: ${store.getUserById(id).name}`));
+    const origOrder = store.users.filter(u => !cargosDeleted.includes(u.id)).map(u => u.id).join("|");
+    const newOrder = cargosDraft.filter(c => c.id).map(c => c.id).join("|");
+    if (origOrder !== newOrder) lines.push("↕️ Cambia el orden de la lista");
+    return lines;
+  }
+
+  document.getElementById("btn-manage-cargos").onclick = openCargosModal;
+  document.getElementById("cargos-close").onclick = () => cargosModal.classList.remove("active");
+  document.getElementById("btn-cargos-cancel").onclick = () => cargosModal.classList.remove("active");
+  document.getElementById("btn-cargo-add").onclick = addCargoToDraft;
+  document.getElementById("cargo-new-name").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); addCargoToDraft(); }
+  });
+  document.getElementById("btn-cargos-save").onclick = () => {
+    const lines = validateCargosDraft();
+    if (!lines) return;
+    if (lines.length === 0) { cargosModal.classList.remove("active"); return; }
+    showConfirmModal(
+      "¿Guardar cambios en los cargos?",
+      lines.join("\n") + "\n\nLos cambios se aplican para todos los usuarios del planificador.",
+      () => {
+        const ok = store.saveCargos(cargosDraft, cargosDeleted);
+        cargosModal.classList.remove("active");
+        if (!ok) { alert("No se pudieron guardar los cargos: revisa las reglas de Firestore."); return; }
+        refreshAll();
+      },
+      { acceptText: "Guardar", icon: "⚙️" }
+    );
+  };
+
+  /* =========================================================
+     V4: MENÚ LATERAL PLEGABLE (CELULAR)
+     ========================================================= */
+  function openSidebar() { document.body.classList.add("sidebar-open"); }
+  function closeSidebar() { document.body.classList.remove("sidebar-open"); }
+  document.getElementById("btn-sidebar-open").onclick = openSidebar;
+  document.getElementById("btn-sidebar-close").onclick = closeSidebar;
+  document.getElementById("sidebar-backdrop").onclick = closeSidebar;
+  document.getElementById("btn-mobile-add").onclick = () => window.openModal();
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSidebar(); });
+  // Al pasar a pantalla ancha, el menú vuelve a su lugar normal
+  window.matchMedia("(max-width: 900px)").addEventListener("change", (e) => { if (!e.matches) closeSidebar(); });
 
   /* =========================================================
      RENDER GENERAL
@@ -938,7 +1185,7 @@ window.startPlannerApp = () => {
   function renderMetrics(tasks) {
     document.getElementById("metrics-subtitle").innerText = `Análisis y estadísticas visuales de ${periodLabel()}`;
 
-    document.getElementById("workload-bars-container").innerHTML = store.users.map(u => {
+    document.getElementById("workload-bars-container").innerHTML = cargosForTasks(tasks).map(u => {
       const userTasks = tasks.filter(t => t.assigneeId === u.id);
       const total = userTasks.length;
       const completed = userTasks.filter(t => t.status === "Completada").length;
@@ -946,7 +1193,7 @@ window.startPlannerApp = () => {
       return `
         <div class="workload-item">
           <div class="workload-item-header">
-            <span>${escapeHtml(u.name)}</span>
+            <span>${escapeHtml(cargoLabel(u))}</span>
             <span>${total} t. (${pct}% comp.)</span>
           </div>
           <div class="workload-progress-bg"><div class="workload-progress-fill" style="width:${pct}%;"></div></div>
@@ -1029,7 +1276,8 @@ window.startPlannerApp = () => {
         }).join("");
 
     const teamTbody = document.getElementById("report-team-tbody");
-    teamTbody.innerHTML = store.users.map(u => {
+    const reportCargos = cargosForTasks(tasks);
+    teamTbody.innerHTML = reportCargos.map(u => {
       const uTasks = tasks.filter(t => t.assigneeId === u.id);
       const uTotal = uTasks.length;
       const uComp = uTasks.filter(t => t.status === "Completada").length;
@@ -1037,7 +1285,7 @@ window.startPlannerApp = () => {
       const uPend = uTasks.filter(t => t.status === "Pendiente").length;
       const uSusp = uTasks.filter(t => t.status === "Suspendida").length;
       const uPct = uTotal > 0 ? Math.round((uComp / uTotal) * 100) : 0;
-      return `<tr><td><strong>${escapeHtml(u.name)}</strong></td><td>${uTotal}</td><td>${uComp}</td><td>${uProc}</td><td>${uPend}</td><td>${uSusp}</td><td><strong>${uPct}%</strong></td></tr>`;
+      return `<tr><td><strong>${escapeHtml(cargoLabel(u))}</strong></td><td>${uTotal}</td><td>${uComp}</td><td>${uProc}</td><td>${uPend}</td><td>${uSusp}</td><td><strong>${uPct}%</strong></td></tr>`;
     }).join("");
 
     if (typeof Chart === "undefined") return;
@@ -1047,10 +1295,10 @@ window.startPlannerApp = () => {
     reportWorkloadChart = new Chart(ctx, {
       type: "bar",
       data: {
-        labels: store.users.map(u => u.name),
+        labels: reportCargos.map(u => cargoLabel(u)),
         datasets: [
-          { label: "Total Tareas Asignadas", data: store.users.map(u => tasks.filter(t => t.assigneeId === u.id).length), backgroundColor: "#3b82f6", borderRadius: 4 },
-          { label: "Tareas Completadas", data: store.users.map(u => tasks.filter(t => t.assigneeId === u.id && t.status === "Completada").length), backgroundColor: "#10b981", borderRadius: 4 }
+          { label: "Total Tareas Asignadas", data: reportCargos.map(u => tasks.filter(t => t.assigneeId === u.id).length), backgroundColor: "#3b82f6", borderRadius: 4 },
+          { label: "Tareas Completadas", data: reportCargos.map(u => tasks.filter(t => t.assigneeId === u.id && t.status === "Completada").length), backgroundColor: "#10b981", borderRadius: 4 }
         ]
       },
       options: {
@@ -1067,6 +1315,9 @@ window.startPlannerApp = () => {
   applyTheme(currentTheme(), false);
   populateAssignees();
   refreshAll();
+  if (store.cargosMode === "fallback") {
+    setSyncStatus("⚠ Cargos sin reglas (ver Administrar cargos)", "err");
+  }
 
   // V3: cuando otro usuario cambia algo en la base compartida, se vuelve a dibujar la vista
   store.onChange = refreshAll;

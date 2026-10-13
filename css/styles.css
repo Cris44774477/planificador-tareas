@@ -463,3 +463,145 @@ input, select, button { color: var(--text-main); }
 .sync-status { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.6rem; }
 .sync-status.ok { color: var(--ok-text); }
 .sync-status.err { color: var(--alert-text); }
+
+
+/* ========== V4: ADMINISTRAR CARGOS ========== */
+.modal-content.modal-cargos { width: 640px; max-height: 90vh; overflow-y: auto; }
+.cargos-help { font-size: 0.8rem; color: var(--text-muted); line-height: 1.45; margin-bottom: 0.9rem; }
+.cargos-help strong { color: var(--text-body); }
+.cargos-warning { font-size: 0.8rem; font-weight: 600; color: var(--alert-text); background: var(--alert-bg); border: 1px solid var(--alert-border); border-radius: 8px; padding: 0.6rem 0.8rem; margin-bottom: 0.9rem; }
+.cargos-list { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.9rem; }
+.cargo-row { display: flex; align-items: center; gap: 0.6rem; background: var(--bg-subtle); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.5rem 0.6rem; }
+.cargo-row.is-inactive { opacity: 0.7; border-style: dashed; }
+.cargo-order { display: flex; flex-direction: column; gap: 2px; }
+.cargo-order .icon-btn { padding: 0 6px; font-size: 0.6rem; line-height: 1.4; }
+.icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.cargo-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.2rem; }
+.cargo-name { width: 100%; padding: 0.45rem 0.55rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; font-weight: 600; background: var(--bg-surface); }
+.cargo-meta { font-size: 0.7rem; color: var(--text-muted); font-weight: 600; }
+.cargo-new { color: var(--color-status-completed); font-weight: 800; }
+.cargo-renamed { color: var(--color-status-process); }
+.cargo-active { white-space: nowrap; }
+.cargo-active .toggle-label { min-width: 54px; }
+.cargos-add { display: flex; gap: 0.5rem; }
+.cargos-add input { flex: 1; min-width: 0; padding: 0.55rem 0.7rem; border: 1px solid var(--border-color); border-radius: 8px; font-size: 0.85rem; background: var(--bg-surface); }
+.cargos-msg { min-height: 1.1em; font-size: 0.8rem; font-weight: 600; color: var(--alert-text); margin-top: 0.5rem; }
+.btn-primary-green:disabled, .btn-secondary-blue:disabled { opacity: 0.5; cursor: not-allowed; }
+.user-filter-item.inactive span:first-child { font-style: italic; color: var(--text-muted); }
+
+/* ========== V4: VISTA PARA CELULAR ========== */
+/* Elementos que solo existen en pantallas angostas */
+.mobile-topbar, .sidebar-backdrop, .sidebar-mobile-head { display: none; }
+/* Selector "Mover a…" del Kanban: en escritorio se usa arrastrar y soltar */
+.kanban-move { display: none; margin-top: 0.5rem; }
+.kanban-move select { width: 100%; padding: 0.45rem; border: 1px solid var(--border-color); border-radius: 6px; font-size: 0.85rem; font-weight: 600; background: var(--bg-subtle); }
+/* En pantallas táctiles (aunque sean anchas, ej. tablet) también se muestra */
+@media (hover: none) and (pointer: coarse) { .kanban-move { display: block; } }
+
+@media (max-width: 900px) {
+  body { font-size: 15px; }
+
+  /* Barra superior fija */
+  .mobile-topbar { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; position: sticky; top: 0; z-index: 120; background: var(--bg-surface); border-bottom: 1px solid var(--border-color); padding: 0.55rem 16px; }
+  .mobile-topbar-title { font-weight: 800; font-size: 1rem; color: var(--text-main); }
+  .mobile-menu-btn { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 42px; padding: 0 0.9rem; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-muted); font-weight: 700; font-size: 0.9rem; cursor: pointer; }
+  .mobile-add-btn { width: 42px; height: 42px; border: none; border-radius: 50%; background: var(--color-status-completed); color: #fff; font-size: 1.5rem; font-weight: 700; line-height: 1; cursor: pointer; }
+
+  /* Menú lateral plegable (se desliza desde la izquierda) */
+  .app-layout { display: block; }
+  .filter-sidebar { position: fixed; top: 0; left: 0; bottom: 0; width: 86vw; max-width: 320px; min-width: 0; z-index: 160; overflow-y: auto; transform: translateX(-105%); transition: transform 0.25s ease; box-shadow: 4px 0 24px rgba(0,0,0,0.18); padding: 1rem 16px 2rem; }
+  body.sidebar-open .filter-sidebar { transform: translateX(0); }
+  .sidebar-backdrop { position: fixed; inset: 0; background: var(--overlay); z-index: 150; }
+  body.sidebar-open .sidebar-backdrop { display: block; }
+  body.sidebar-open { overflow: hidden; }
+  .sidebar-mobile-head { display: flex; justify-content: space-between; align-items: center; font-size: 0.95rem; color: var(--text-main); }
+  .sidebar-close-btn { width: 40px; height: 40px; border: 1px solid var(--border-color); border-radius: 8px; background: var(--bg-muted); font-size: 1rem; cursor: pointer; }
+  .user-filter-item { padding: 0.75rem 0.7rem; }
+  .chip { padding: 0.55rem 0.9rem; font-size: 0.85rem; }
+
+  /* Panel principal */
+  .main-panel { padding: 0.8rem 16px 1.5rem; gap: 0.8rem; }
+  .kpi-row { grid-template-columns: repeat(2, 1fr); gap: 0.6rem; }
+  .kpi-card { padding: 0.75rem 0.85rem; }
+  .kpi-label { font-size: 0.7rem; }
+  .kpi-value { font-size: 1.5rem; }
+  .kpi-icon { width: 34px; height: 34px; font-size: 1rem; }
+
+  .alert-banner { flex-direction: column; align-items: stretch; padding: 0.8rem; }
+  .alert-content { gap: 0.6rem; }
+  .btn-alert-action { min-height: 42px; }
+
+  /* Pestañas en una fila con desplazamiento lateral */
+  .view-tab-bar { flex-direction: column; align-items: stretch; }
+  .tab-group { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+  .tab-btn { white-space: nowrap; min-height: 42px; padding: 0.5rem 0.85rem; }
+  .action-search-group { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; width: 100%; }
+  .search-box { grid-column: 1 / -1; min-width: 0; }
+  .search-box input { width: 100%; min-width: 0; flex: 1; }
+  .action-search-group .btn-secondary-blue, .action-search-group .btn-primary-green { min-height: 44px; padding: 0.6rem 0.5rem; min-width: 0; }
+
+  /* Barra de periodo */
+  .period-bar { flex-direction: column; align-items: stretch; padding: 0.6rem; gap: 0.6rem; }
+  .period-nav { justify-content: space-between; flex-wrap: wrap; }
+  .period-badge { min-width: 0; flex: 1; order: -1; flex-basis: 100%; }
+  .period-nav .btn-secondary.btn-sm { flex: 1; min-height: 42px; font-size: 0.85rem; }
+  .btn-text-action { min-height: 42px; }
+  .period-actions { justify-content: space-between; }
+  .btn-danger-sm { min-height: 40px; }
+
+  .view-panel { padding: 0.8rem; }
+
+  /* Gantt: columna de tareas más angosta y desplazamiento horizontal */
+  .gantt-subhead { flex-direction: column; align-items: flex-start; }
+  .zoom-control { flex-wrap: wrap; }
+  .zoom-btn { min-height: 36px; padding: 0.3rem 0.7rem; }
+  .gantt-col-task { width: 150px; min-width: 150px; padding: 0.45rem; }
+  .gantt-task-title { font-size: 0.75rem; }
+  .gantt-item-actions .icon-btn { padding: 4px 7px; }
+
+  /* Kanban en una sola columna */
+  .kanban-board { grid-template-columns: 1fr; }
+  .kanban-col { min-height: 0; }
+  .kanban-card { cursor: pointer; }
+  .kanban-move { display: block; }
+
+  /* Tablas: se desplazan a lo ancho en vez de aplastarse */
+  .table-responsive { -webkit-overflow-scrolling: touch; }
+  .data-table { min-width: 760px; font-size: 0.82rem; }
+  .data-table th, .data-table td { padding: 0.6rem; }
+  .data-table .btn-secondary { min-height: 38px; }
+  .history-header { flex-direction: column; align-items: stretch; }
+  .history-filters .select-filter, .history-filters button { flex: 1 1 45%; min-height: 42px; }
+
+  /* Métricas y reporte */
+  .metrics-dashboard-grid { grid-template-columns: 1fr; }
+  .report-wrapper-print { padding: 0.5rem 0; }
+  .report-executive-header { flex-direction: column; }
+  .report-meta-box { text-align: left; width: 100%; }
+  .report-kpi-banner { grid-template-columns: repeat(2, 1fr); }
+  .report-section { overflow-x: auto; }
+  .report-data-table { min-width: 560px; }
+
+  /* Ventanas (modales) a casi pantalla completa */
+  .modal { align-items: flex-end; z-index: 300; }
+  .modal-content, .modal-content.modal-cargos { width: 100%; max-width: 100%; max-height: 92vh; overflow-y: auto; border-radius: 14px 14px 0 0; padding: 1.1rem 16px 1.4rem; }
+  .modal-content.modal-confirm { width: 100%; }
+  .form-grid { grid-template-columns: 1fr; }
+  .form-group.full-width { grid-column: span 1; }
+  /* 16px evita que el iPhone haga zoom al escribir */
+  .form-group input, .form-group select, .cargo-name, .cargos-add input, .search-box input, .login-card input, .kanban-move select { font-size: 16px; }
+  .form-group input, .form-group select { min-height: 44px; }
+  .modal-actions button, .confirm-actions button { min-height: 44px; }
+  .close-modal { font-size: 2rem; padding: 0 0.3rem; }
+  .cargo-row { flex-wrap: wrap; }
+  .cargo-main { flex-basis: calc(100% - 50px); }
+  .cargo-order { flex-direction: row; order: 3; }
+  .cargo-order .icon-btn { padding: 6px 12px; font-size: 0.8rem; }
+  .cargo-active { order: 4; margin-left: auto; }
+  .cargo-row .icon-btn-danger { order: 5; padding: 6px 12px; font-size: 0.85rem; }
+}
+
+@media print {
+  .mobile-topbar, .sidebar-backdrop { display: none !important; }
+  .kanban-move { display: none !important; }
+}
